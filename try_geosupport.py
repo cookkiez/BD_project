@@ -7,7 +7,10 @@ from sklearn.neighbors import KDTree
 import dask.dataframe as dd
 from dask.distributed import Client, wait
 import dask.array as da
-
+from dask_jobqueue import SLURMCluster
+import subprocess as sp
+uid = int(sp.check_output('id -u', shell=True).decode('utf-8').replace('\n',''))
+portdash = 10000 + uid
 
 def get_augment_data():
     df_museums = pd.read_csv('MUSEUM.csv')
@@ -69,25 +72,29 @@ def get_data_from_api_dask(ddf):
     start_time = time.time()
     lats = []
     lngs = []
-    client = Client(n_workers=20, processes=False)
+    cluster = SLURMCluster(cores=10, processes=1, memory="800M",
+                            scheduler_options={"dashboard_address": f":{portdash}"})
+    cluster.scale(1)
+    client = Client(cluster)
     futures = client.map(test, ddf['street_name'])
     cnt = 0
     a = client.gather(futures)
     print("\n\n------GOT ALL RESULTS")
     for response in a:
         feats = response['features']
-        lng, lat = feats[0]['geometry']['coordinates'] if len(
-            feats) != 0 else (None, None)
+        lng, lat = feats[0]['geometry']['coordinates'] if len(feats) != 0 else (None, None)
         lats.append(str(lat))
         lngs.append(str(lng))
         cnt += 1
-    # print(lats, lngs)
     print((time.time() - start_time))
     chunks = ddf.map_partitions(lambda x: len(x)).compute().to_numpy()
     la = da.from_array(lats, chunks=tuple(chunks))
     ln = da.from_array(lngs, chunks=tuple(chunks))
     ddf['lat'] = la
     ddf['lng'] = ln
+
+    cluster.close()
+    client.close()
     return ddf
 
 
@@ -97,7 +104,7 @@ def write_parquet(df):
 
 
 def write_dask_parquet(df):
-    file_to_save = 'dataset-lat-lng.parquet'
+    file_to_save = '/d/hpc/home/aj8977/Project/dataset-lat-lng.parquet'
     dd.to_parquet(df, file_to_save, overwrite=True, engine='fastparquet')
 
 
@@ -116,17 +123,13 @@ def get_closest_place_of_interest(places_of_interest, df):
     df["dist_to_closest_interest_place"] = dist_to_place
     return df
 
-
-pf = ParquetFile('dataset.parquet')
-df = pf.to_pandas()
-df = df.dropna(how='all')
-df = df[df['street_name'].notna()]
-rChunk = dd.from_pandas(df, chunksize=100)
-# rChunk = rChunk.set_index('summons_number')
-print("Read parquet file:", df.shape)
+print("Hello")
+# pf = ParquetFile('dataset.parquet')
+rChunk = dd.read_parquet('/d/hpc/home/aj8977/Project/dataset.parquet', engine='fastparquet')
+print("Read parquet file:", rChunk.shape)
 ddf = get_data_from_api_dask(rChunk)
 print("New dataframe shape: ", ddf.shape)
-# places_of_interest = get_augment_data()
+# # places_of_interest = get_augment_data()
 
-# augmented_df = get_closest_place_of_interest(places_of_interest, df)
+# # augmented_df = get_closest_place_of_interest(places_of_interest, df)
 write_dask_parquet(ddf)
