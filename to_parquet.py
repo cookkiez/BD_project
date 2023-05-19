@@ -38,4 +38,5 @@ for col1, col2 in zip(dtypes, names):
 
 df = df.rename(columns=new_dict)
 print(df.head())
-dd.to_parquet(df, '/d/hpc/home/aj8977/Project/dataset.parquet', overwrite=True, engine='fastparquet')
+df.repartition(partition_size="800MB")
+dd.to_parquet(df, '/d/hpc/home/aj8977/Project/dataset.parquet', overwrite=True, engine='fastparquet', )

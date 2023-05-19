@@ -72,10 +72,12 @@ def get_data_from_api_dask(ddf):
     start_time = time.time()
     lats = []
     lngs = []
-    cluster = SLURMCluster(cores=10, processes=1, memory="800M",
+    cluster = SLURMCluster(cores=1, memory="800M",
                             scheduler_options={"dashboard_address": f":{portdash}"})
-    cluster.scale(1)
+    cluster.scale(5)
+    print(cluster)
     client = Client(cluster)
+    print(client)
     futures = client.map(test, ddf['street_name'])
     cnt = 0
     a = client.gather(futures)
@@ -125,8 +127,10 @@ def get_closest_place_of_interest(places_of_interest, df):
 
 print("Hello")
 # pf = ParquetFile('dataset.parquet')
-rChunk = dd.read_parquet('/d/hpc/home/aj8977/Project/dataset.parquet', engine='fastparquet')
+rChunk = dd.read_parquet('/d/hpc/home/aj8977/Project/dataset.parquet', 
+                         engine='fastparquet',)
 print("Read parquet file:", rChunk.shape)
+print(rChunk.head())
 ddf = get_data_from_api_dask(rChunk)
 print("New dataframe shape: ", ddf.shape)
 # # places_of_interest = get_augment_data()
