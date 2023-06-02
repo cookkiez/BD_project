@@ -7,9 +7,10 @@ import dask.dataframe as dd
 from dask.distributed import Client, wait
 from dask_jobqueue import SLURMCluster
 import pyarrow as pa
+from dask import delayed
 
 
-to_delete = ['issue_date', 'vehicle_body_type', 'street_code1', 'street_code2', 'street_code3', 'vehicle_expiration_date',
+to_delete = ['vehicle_body_type', 'street_code1', 'street_code2', 'street_code3', 'vehicle_expiration_date',
              'violation_location', 'issuer_command', 'violation_time', 'time_first_observed', 'house_number', 'intersecting_street',
              'date_first_observed', 'sub_division', 'violation_legal_code', 'from_hours_in_effect', 'to_hours_in_effect', 
              'meter_number', 'violation_post_code', 'violation_description', 'no_standing_or_stopping_violation', 'hydrant_violation', 'double_parking_violation'
@@ -76,21 +77,19 @@ def dist_fun(ddf, streets_df, kdtree):
 
 
 def fun(df):
-    for col in to_delete:
-        df = df.drop(col, axis=1)
+    # for col in to_delete:
+    #     df = df.drop(col, axis=1)
     places_of_interest = get_augment_data()
     kdtree = KDTree(places_of_interest[["lat", "lng"]].values)
     streets_df = dd.read_parquet('streets_full.parquet', 
                          engine='pyarrow',).drop_duplicates().compute()
     print("Getting names")
     meta = df.head().apply(name_fun, axis=1, args=(streets_df, kdtree, places_of_interest))
-    df['closest_interest_place'] = df.apply(name_fun, axis=1, args=(streets_df, kdtree, places_of_interest),
-                     meta=meta)
+    df['closest_interest_place'] = df.apply(name_fun, axis=1, args=(streets_df, kdtree, places_of_interest), meta=meta)
     print("Getting dists")
     meta = df.head().apply(dist_fun, axis=1, args=(streets_df, kdtree))
     print("Got dists meta")
-    df['dist_to_closest_interest_place'] = df.apply(dist_fun, axis=1, args=(streets_df, kdtree),
-                     meta=meta)
+    df['dist_to_closest_interest_place'] = df.apply(dist_fun, axis=1, args=(streets_df, kdtree), meta=meta)
     print("Transforming")
     # df['closest_interest_place'] = df['closest_interest_place'].astype('str') 
     for col in df.columns:
@@ -107,7 +106,7 @@ def get_closest_place_of_interest(df):
     #                        scheduler_options={"dashboard_address": f":{portdash}"},
     #                        walltime='05:00:00',job_extra_directives=["--reservation=fri-vr"])
     # cluster.scale(5)
-    # client = Client(n_workers=4, threads_per_worker=5, memory_limit="7GB") 
+    client = Client(n_workers=8, threads_per_worker=16, memory_limit="8GB") 
     # client = Client(cluster)
     # print(client, client.dashboard_link)
     # divs = df.set_index('summons_number').divisions
@@ -118,14 +117,15 @@ def get_closest_place_of_interest(df):
     #    sleep(10)
     #    print("Waiting for workers...")
     # print("Got workers!")
-    # df_scat = client.scatter(df)
+    df_scat = client.scatter(df)
     # df = df.set_index('summons_number')
     # df_scat = df_scat.set_index('summons_number')
-    # res = client.submit(fun, df_scat)
+    res = client.submit(fun, df_scat).result()
+    client.shutdown()
     # meta = df.head().apply(fun, axis=1)
     # res = df.map_partitions(fun, meta=meta)
-    res = fun(df)
-    print("GOT RESULT")
+    # res = fun(df)
+    print("GOT RESULT", res)
     # write_dask_parquet(res)
     # print("GOT RESULT")
     return res

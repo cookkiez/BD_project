@@ -3,20 +3,23 @@ from augment_data import get_df, get_augment_data, to_delete
 import pandas as pd
 import matplotlib.pyplot as plt
 from pprint import pprint
+from dask_jobqueue import SLURMCluster
+from dask.distributed import Client
+from time import sleep
 
 """
 results for most popular locations in nyc for parking tickets
-                                         name                lat                 lng  museum           count
-319                                Co-op City          40.874035          -73.831669   False              78
-209  Schuylerville-Throgs Neck-Edgewater Park          40.831829          -73.827642   False              28
-96                       Queens Museum of Art   40.7458428647494   -73.8467627581779    True              11
-288                              East Tremont          40.850131           -73.89163   False              11
-307                               Hunts Point          40.814034          -73.886834   False              11
-302                                Mount Hope          40.848344          -73.903821   False              10
-108               South Street Seaport Museum  40.70660335756895  -74.00372094057576    True               9
-230                             College Point          40.778029          -73.842967   False               9
-297                    Mott Haven-Port Morris          40.816369          -73.922697   False               9
-88                    New York Transit Museum  40.69052369812635   -73.9900259713183    True               8
+                                         name        lat        lng  museum           count
+297                    Mott Haven-Port Morris  40.816369 -73.922697   False          586621
+292                             Fordham South   40.85644 -73.898821   False          449359
+252                                Whitestone  40.786201 -73.817338   False          330980
+195                       Morningside Heights  40.810705 -73.957409   False          191524
+230                             College Point  40.778029 -73.842967   False          175062
+154                            Bushwick South  40.686424  -73.91043   False          164195
+245                                 Woodhaven  40.691467 -73.852792   False          143026
+263                                 Rego Park  40.728012 -73.862561   False          142379
+209  Schuylerville-Throgs Neck-Edgewater Park  40.831829 -73.827642   False          140747
+136                   Cypress Hills-City Line  40.689213 -73.872983   False          134695
 
 --------
 
@@ -71,13 +74,38 @@ Least popular parking violations:
     'OT PARKING-MISSING/BROKEN METR',
     'VACANT LOT',
     'NO STOP/STANDNG EXCEPT PAS P/U']
+
+--------
+
+street_name
+Broadway                138249
+WB N CONDUIT AVE @ S    109881
+3rd Ave                 103746
+WB N. CONDUIT BLVD @     81076
+5th Ave                  72413
+2nd Ave                  63084
+NB CROSS BAY BLVD @      61571
+EB BRUCKNER BLVD @ W     60451
+Madison Ave              59221
+EB W 14TH STREET @ 5     58492
+Lexington Ave            55500
+WB HORACE HARDING EX     52572
+1st Ave                  52304
+WB ASTORIA BLVD N @      50587
+6th Ave                  50060
 """
+
+def temp_fun(df):
+    return df.compute()
+
 
 def do_augmented_analysis(file):
     import geopandas as gpd
     import geoplot as gplt
     import geoplot.crs as gcrs
 
+
+    client = Client(n_workers=3, threads_per_worker = 2, memory_limit='8G')
     places_of_interest = get_augment_data()
     nyc_boroughs = gpd.read_file(gplt.datasets.get_path('nyc_boroughs'))
     ax = nyc_boroughs.plot(figsize=(32,28), zorder=0)
@@ -85,20 +113,24 @@ def do_augmented_analysis(file):
     df = get_df(file)
     grouped_df = df.groupby(['closest_interest_place']).count()
     print("grouped")
-    merged = dd.merge(places_of_interest, grouped_df[["summons_number"]].compute(), how='inner', left_index=True, right_index=True)
+    grouped_df.visualize(filename="grouped_test.svg")
+    # future = client.compute(grouped_df)
+    client = Client(n_workers=8, threads_per_worker=16, memory_limit="8GB") 
+    #merged = client.submit(temp_fun, grouped_scattered).result()
+    merged = dd.merge(places_of_interest, grouped_df[["summons_number"]], how='inner', left_index=True, right_index=True).compute()
     print("Merged")
-    # print(merged)
     gdf = gpd.GeoDataFrame(
         merged, geometry=gpd.points_from_xy(merged.lng, merged.lat), crs="EPSG:4326"
     )
     print("Plotting")
     gdf["color"] = gdf.apply(lambda row: 'gold' if row['museum'] else 'black', axis=1)
     print(gdf["color"])
-    gdf.plot(ax=ax, markersize=[x * 20 for x in merged["summons_number"].values], marker='*', color=gdf['color'], zorder=1)
+    gdf.plot(ax=ax, markersize=[v * 0.5 for v in merged["summons_number"].values], marker='*', color=gdf['color'], zorder=1)
     largest_vals = merged.nlargest(10, 'summons_number')
     print(largest_vals)
     plt.axis('off')
-    plt.savefig("Interest_locations_popularity.png", bbox_inches='tight')
+    plt.savefig("Interest_locations_popularity_05_test.png", bbox_inches='tight')
+    client.shutdown()
 
 def get_basic_ddf(file):
     ddf = dd.read_parquet(file, engine='pyarrow')
@@ -163,13 +195,24 @@ def get_violations_by_reg_plt(file):
     plt.savefig("most_viol_by_reg_plt.png", bbox_inches='tight')
 
 
+def get_streets_with_most_tickets(file):
+    basic_ddf = get_basic_ddf(file)
+    # print(basic_ddf)
+    counts = basic_ddf.street_name.value_counts().nlargest(15).compute()
+    counts.plot.bar()
+    plt.xticks(range(15), counts.index)
+    plt.savefig("Most_popular_streets.png", bbox_inches='tight')
+    print(counts)
+
+
 if __name__ == "__main__":
-    file = '/d/hpc/home/aj8977/Project/dataset_small.parquet'
-    # do_augmented_analysis(file)
+    file = '/d/hpc/home/aj8977/Project/dataset.parquet'
+    do_augmented_analysis(file)
     # get_count_by_reg_plt(file)
     # get_count_by_reg_state(file)
     # get_count_by_violation_code(file)
-    get_violations_by_reg_plt(file)
+    # get_violations_by_reg_plt(file)
+    # get_streets_with_most_tickets(file)
     print("Done")
 
 
@@ -180,8 +223,5 @@ TODO:
     - count by violation code -> done
     - count by violations per person -> done
     - amount person has payed for tickets -> done
-    - count by issuer precinct
-    - count by vehicle color
-    - count by unregistered vehicle
-    - count by vehicle make
+    - streets with most tickets -> done
 """
