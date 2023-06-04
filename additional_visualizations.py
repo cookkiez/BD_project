@@ -15,6 +15,7 @@ from datetime import datetime
 
 months = dict()
 days = dict()
+vehicles = dict()
 
 def get_basic_ddf(file):
     ddf = dd.read_parquet(file, engine='pyarrow')
@@ -34,6 +35,13 @@ def temp_fun(row):
         if d not in days:
             days[d] = 0
         days[d] += 1
+
+        v = r["vehicle_make"]
+        #v = r["vehicle_body_type"]
+        if v != None:
+            if v not in vehicles:
+                vehicles[v] = 0
+            vehicles[v] += 1            
 
 def sinker(a):
     pass
@@ -65,6 +73,35 @@ def do_plot():
     fig, ax = plt.subplots()
     ax.pie(list(days.values()), labels=labels_d)
     plt.savefig("Tickets_by_weekdays", bbox_inches='tight')
+
+    plt.clf()
+    vehicles_ = {k: v for k, v in sorted(vehicles.items(), key=lambda item: item[1], reverse=True)}
+    n = 19
+    vehicles1 = list(vehicles_.items())[:n]
+    vehicles2 = sum(list(vehicles_.values())[n:])
+    vehicles1.append(("OTHER", vehicles2))
+    for i in range(len(vehicles1)):
+        v, c = vehicles1[i]
+        if v == "TOYOT":
+            v = "TOYOTA"
+        elif v == "NISSA":
+            v = "NISSAN"
+        elif v == "ME/BE":
+            v = "MERCEDES BENZ"
+        elif v == "CHEVR":
+            v = "CHEVROLET"
+        elif v == "HYUND":
+            v = "HYUNDAI"
+        elif v == "SUBAR":
+            v = "SUBARU"
+        elif v == "VOLKS":
+            v = "VOLKSWAGEN"
+        elif v == "INFIN":
+            v = "INFINITY"
+        vehicles1[i] = (v, c)
+    fig, ax = plt.subplots()
+    ax.pie([c for v, c in vehicles1], labels=[v for v, c in vehicles1])
+    plt.savefig("Tickets_by_manufacturers", bbox_inches='tight')
     
 
 if __name__ == '__main__':
